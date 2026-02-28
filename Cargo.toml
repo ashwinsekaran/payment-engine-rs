@@ -1,0 +1,13 @@
+[package]
+name = "payment-engine-rs"
+version = "0.1.0"
+edition = "2021"
+description = "Toy payments engine"
+rust-version = "1.75"
+
+[dependencies]
+anyhow = "1"
+axum = "0.7"
+csv = "1"
+serde = { version = "1", features = ["derive"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
