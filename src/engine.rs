@@ -2,6 +2,10 @@ use std::collections::HashMap;
 
 use crate::models::{parse_amount, Account, CsvTransaction, StoredTransaction, TransactionType};
 
+/// In-memory transaction engine.
+///
+/// `accounts` stores current balances per client and `transactions` stores
+/// transaction metadata required for dispute/resolve/chargeback handling.
 #[derive(Default)]
 pub struct Engine {
     accounts: HashMap<u16, Account>,
@@ -9,6 +13,7 @@ pub struct Engine {
 }
 
 impl Engine {
+    /// Processes one transaction row and applies state changes if valid.
     pub fn process(&mut self, row: CsvTransaction) {
         match row.tx_type {
             TransactionType::Deposit => self.handle_deposit(row),
@@ -19,6 +24,7 @@ impl Engine {
         }
     }
 
+    /// Returns read-only account state map for final CSV output.
     pub fn accounts(&self) -> &HashMap<u16, Account> {
         &self.accounts
     }
@@ -46,6 +52,7 @@ impl Engine {
         }
 
         account.available += amount;
+        // Keep successful transactions so later dispute events can reference them.
         self.transactions.insert(
             row.tx,
             StoredTransaction {
@@ -76,6 +83,7 @@ impl Engine {
         }
 
         account.available -= amount;
+        // Store successful withdrawals too (current business rule: withdrawals are disputable).
         self.transactions.insert(
             row.tx,
             StoredTransaction {
@@ -101,6 +109,7 @@ impl Engine {
             return;
         }
 
+        // Dispute moves funds from available to held; total remains unchanged.
         account.available -= amount;
         account.held += amount;
     }
@@ -119,6 +128,7 @@ impl Engine {
             return;
         }
 
+        // Resolve releases held funds back to available; total remains unchanged.
         account.available += amount;
         account.held -= amount;
     }
@@ -138,6 +148,7 @@ impl Engine {
             return;
         }
 
+        // Chargeback finalizes dispute: remove held funds from total and lock account.
         account.held -= amount;
         account.locked = true;
     }

@@ -1,9 +1,12 @@
 use anyhow::{anyhow, ensure, Result};
 use serde::Deserialize;
 
+/// Fixed-point scale for 4 decimal places (e.g. 1.0000 = 10_000).
 pub const SCALE: i64 = 10_000;
+/// Internal integer representation for monetary values.
 pub type Amount = i64;
 
+/// Supported transaction types from the input CSV.
 #[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum TransactionType {
@@ -14,6 +17,7 @@ pub enum TransactionType {
     Chargeback,
 }
 
+/// Raw transaction row deserialized from CSV input.
 #[derive(Debug, Deserialize)]
 pub struct CsvTransaction {
     #[serde(rename = "type")]
@@ -23,6 +27,7 @@ pub struct CsvTransaction {
     pub amount: Option<String>,
 }
 
+/// Current account balance state for a client.
 #[derive(Debug, Clone, Copy)]
 pub struct Account {
     pub available: Amount,
@@ -31,6 +36,7 @@ pub struct Account {
 }
 
 impl Account {
+    /// Returns `available + held`.
     pub fn total(self) -> Amount {
         self.available + self.held
     }
@@ -46,6 +52,7 @@ impl Default for Account {
     }
 }
 
+/// Stored transaction metadata required for dispute lifecycle operations.
 #[derive(Debug, Clone, Copy)]
 pub struct StoredTransaction {
     pub client: u16,
@@ -54,6 +61,7 @@ pub struct StoredTransaction {
     pub chargebacked: bool,
 }
 
+/// Parses a decimal amount string into 4-decimal fixed-point integer units.
 pub fn parse_amount(raw: &str) -> Result<Amount> {
     let value = raw.trim();
     ensure!(!value.is_empty(), "amount is empty");
@@ -91,6 +99,7 @@ pub fn parse_amount(raw: &str) -> Result<Amount> {
     Ok(amount)
 }
 
+/// Formats fixed-point amount into a decimal string with exactly 4 fractional digits.
 pub fn format_amount(amount: Amount) -> String {
     let sign = if amount < 0 { "-" } else { "" };
     let absolute = amount.abs();

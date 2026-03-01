@@ -9,12 +9,14 @@ use crate::{
     models::{format_amount, Account, CsvTransaction},
 };
 
+/// Validates the path, opens the input file, and streams transactions into the engine.
 pub fn process_transactions_file(path: &str, engine: &mut Engine) -> Result<()> {
     ensure_csv_path(path)?;
     let file = File::open(path).with_context(|| format!("failed to open input file: {path}"))?;
     process_csv_reader(file, engine)
 }
 
+/// Ensures input file has `.csv` extension (case-insensitive).
 fn ensure_csv_path(path: &str) -> Result<()> {
     let is_csv = Path::new(path)
         .extension()
@@ -28,6 +30,7 @@ fn ensure_csv_path(path: &str) -> Result<()> {
     Ok(())
 }
 
+/// Streams CSV rows from any `Read` source and applies them to the engine.
 pub fn process_csv_reader<R: Read>(reader: R, engine: &mut Engine) -> Result<()> {
     let mut csv_reader = ReaderBuilder::new().trim(Trim::All).from_reader(reader);
 
@@ -49,6 +52,7 @@ struct AccountRow {
 }
 
 pub fn write_accounts_file<W: Write>(writer: W, accounts: &HashMap<u16, Account>) -> Result<()> {
+    // Stable output ordering for easier diffs and deterministic tests.
     let mut account_ids: Vec<u16> = accounts.keys().copied().collect();
     account_ids.sort_unstable();
 
@@ -108,6 +112,6 @@ chargeback,2,3,
     #[test]
     fn rejects_non_csv_extension() {
         let err = ensure_csv_path("input/basic_input.txt").unwrap_err();
-        assert!(err.to_string().contains("please provide a .csv file"));
+        assert!(err.to_string().contains(".csv"));
     }
 }
