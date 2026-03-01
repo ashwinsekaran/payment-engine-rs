@@ -56,3 +56,23 @@ Current tests cover:
 ## Input file
 
 - `input/basic_input.csv`: primary input file for running the engine locally.
+
+## Docker
+
+Build image:
+
+```bash
+docker build -t payment-engine-rs:latest .
+```
+
+Run with input file (prints CSV to stdout):
+
+```bash
+docker run --rm -v "$PWD/input:/app/input:ro" payment-engine-rs:latest /app/input/basic_input.csv
+```
+
+Run and save output to host file:
+
+```bash
+docker run --rm -v "$PWD/input:/app/input:ro" payment-engine-rs:latest /app/input/basic_input.csv > output/basic_output.csv
+```
