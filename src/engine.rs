@@ -66,12 +66,25 @@ impl Engine {
             return;
         };
 
+        if self.transactions.contains_key(&row.tx) {
+            return;
+        }
+
         let account = self.account_mut(row.client);
         if account.locked || account.available < amount {
             return;
         }
 
         account.available -= amount;
+        self.transactions.insert(
+            row.tx,
+            StoredTransaction {
+                client: row.client,
+                amount,
+                disputed: false,
+                chargebacked: false,
+            },
+        );
     }
 
     fn handle_dispute(&mut self, row: CsvTransaction) {
@@ -144,6 +157,14 @@ mod tests {
         }
     }
 
+    fn assert_account(engine: &Engine, client: u16, available: i64, held: i64, total: i64, locked: bool) {
+        let account = engine.accounts().get(&client).unwrap();
+        assert_eq!(account.available, available);
+        assert_eq!(account.held, held);
+        assert_eq!(account.total(), total);
+        assert_eq!(account.locked, locked);
+    }
+
     #[test]
     fn deposit_and_withdrawal_update_available_and_total() {
         let mut engine = Engine::default();
@@ -197,5 +218,91 @@ mod tests {
         let account = engine.accounts().get(&1).unwrap();
         assert_eq!(account.available, 20_000);
         assert_eq!(account.held, 0);
+    }
+
+    #[test]
+    fn dispute_and_resolve_work_for_withdrawal_transactions() {
+        let mut engine = Engine::default();
+
+        engine.process(row(TransactionType::Deposit, 48, 1, Some("100.0")));
+        engine.process(row(TransactionType::Withdrawal, 48, 9, Some("10.0")));
+        engine.process(row(TransactionType::Dispute, 48, 9, None));
+
+        let account = engine.accounts().get(&48).unwrap();
+        assert_eq!(account.available, 800_000);
+        assert_eq!(account.held, 100_000);
+        assert_eq!(account.total(), 900_000);
+
+        engine.process(row(TransactionType::Resolve, 48, 9, None));
+        let account = engine.accounts().get(&48).unwrap();
+        assert_eq!(account.available, 900_000);
+        assert_eq!(account.held, 0);
+        assert_eq!(account.total(), 900_000);
+    }
+
+    #[test]
+    fn insufficient_withdrawal_then_dispute_blocks_further_withdrawal_until_resolve() {
+        let mut engine = Engine::default();
+
+        engine.process(row(TransactionType::Deposit, 7, 1, Some("50.0")));
+        engine.process(row(TransactionType::Withdrawal, 7, 2, Some("60.0"))); // ignored
+        engine.process(row(TransactionType::Deposit, 7, 3, Some("20.0")));
+        engine.process(row(TransactionType::Dispute, 7, 3, None));
+        engine.process(row(TransactionType::Withdrawal, 7, 4, Some("55.0"))); // ignored (only 50 available)
+
+        assert_account(&engine, 7, 500_000, 200_000, 700_000, false);
+
+        engine.process(row(TransactionType::Resolve, 7, 3, None));
+        engine.process(row(TransactionType::Withdrawal, 7, 5, Some("55.0"))); // succeeds
+
+        assert_account(&engine, 7, 150_000, 0, 150_000, false);
+    }
+
+    #[test]
+    fn mixed_multi_client_flow_with_noise_and_locking() {
+        let mut engine = Engine::default();
+
+        engine.process(row(TransactionType::Deposit, 1, 1, Some("100.0")));
+        engine.process(row(TransactionType::Deposit, 2, 2, Some("5.0")));
+        engine.process(row(TransactionType::Withdrawal, 1, 3, Some("30.0")));
+        engine.process(row(TransactionType::Dispute, 1, 3, None));
+        engine.process(row(TransactionType::Dispute, 2, 3, None)); // wrong client, ignored
+        engine.process(row(TransactionType::Withdrawal, 1, 4, Some("80.0"))); // ignored
+        engine.process(row(TransactionType::Resolve, 1, 3, None));
+        engine.process(row(TransactionType::Withdrawal, 1, 5, Some("70.0"))); // succeeds
+
+        engine.process(row(TransactionType::Withdrawal, 2, 6, Some("10.0"))); // ignored
+        engine.process(row(TransactionType::Dispute, 2, 2, None));
+        engine.process(row(TransactionType::Chargeback, 2, 2, None)); // lock client 2
+        engine.process(row(TransactionType::Deposit, 2, 7, Some("1.0"))); // ignored because locked
+
+        assert_account(&engine, 1, 0, 0, 0, false);
+        assert_account(&engine, 2, 0, 0, 0, true);
+    }
+
+    #[test]
+    fn duplicate_transaction_ids_are_ignored_for_deposit_and_withdrawal() {
+        let mut engine = Engine::default();
+
+        engine.process(row(TransactionType::Deposit, 10, 1, Some("10.0")));
+        engine.process(row(TransactionType::Deposit, 10, 1, Some("20.0"))); // duplicate tx id
+        engine.process(row(TransactionType::Withdrawal, 10, 2, Some("5.0")));
+        engine.process(row(TransactionType::Withdrawal, 10, 2, Some("1.0"))); // duplicate tx id
+
+        assert_account(&engine, 10, 50_000, 0, 50_000, false);
+    }
+
+    #[test]
+    fn resolve_and_chargeback_without_active_dispute_are_ignored() {
+        let mut engine = Engine::default();
+
+        engine.process(row(TransactionType::Deposit, 11, 1, Some("10.0")));
+        engine.process(row(TransactionType::Resolve, 11, 1, None)); // ignored (not disputed)
+        engine.process(row(TransactionType::Chargeback, 11, 1, None)); // ignored (not disputed)
+        engine.process(row(TransactionType::Dispute, 11, 1, None));
+        engine.process(row(TransactionType::Chargeback, 11, 1, None)); // valid
+        engine.process(row(TransactionType::Resolve, 11, 1, None)); // ignored (already charged back)
+
+        assert_account(&engine, 11, 0, 0, 0, true);
     }
 }

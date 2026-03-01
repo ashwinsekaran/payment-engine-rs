@@ -1,6 +1,6 @@
 # payment-engine-rs
 
-Minimal toy payments engine for the Kraken coding challenge.
+Minimal toy payments engine for simple transactions tracked in CSV built in Rust. 
 
 ## Run
 
@@ -10,13 +10,18 @@ cargo run -- transactions.csv > accounts.csv
 
 The binary accepts exactly one argument: the input CSV path.
 
+For this repository structure:
+
+```bash
+cargo run -- input/basic_input.csv > output/basic_output.csv
+```
+
 ## Tech used
 
-- `tokio` async runtime (`#[tokio::main]`)
-- `axum` routing (`/health` router construction in `src/http.rs`)
 - `anyhow` error handling
 - `csv` for CSV parsing and writing
 - `serde` for CSV row serialization/deserialization
+- `tokio` async runtime (`#[tokio::main]`)
 
 ## Project structure
 
@@ -24,7 +29,6 @@ The binary accepts exactly one argument: the input CSV path.
 - `src/models.rs`: core data models + fixed-point amount parse/format helpers
 - `src/engine.rs`: transaction rules (deposit, withdrawal, dispute, resolve, chargeback)
 - `src/io.rs`: CSV read/process/write helpers
-- `src/http.rs`: minimal axum router
 
 ## Behavior notes
 
@@ -49,18 +53,6 @@ Current tests cover:
 - chargeback lock behavior
 - end-to-end CSV processing/output shape
 
-## Sample CSV checks
+## Input file
 
-Sample cases are in `samples/`:
-
-- `basic_input.csv` -> `basic_expected.csv`
-- `dispute_resolve_chargeback_input.csv` -> `dispute_resolve_chargeback_expected.csv`
-- `ignore_invalid_ops_input.csv` -> `ignore_invalid_ops_expected.csv`
-
-Run checks:
-
-```bash
-cargo run -- samples/basic_input.csv > /tmp/basic_out.csv && diff -u samples/basic_expected.csv /tmp/basic_out.csv
-cargo run -- samples/dispute_resolve_chargeback_input.csv > /tmp/dispute_out.csv && diff -u samples/dispute_resolve_chargeback_expected.csv /tmp/dispute_out.csv
-cargo run -- samples/ignore_invalid_ops_input.csv > /tmp/invalid_out.csv && diff -u samples/ignore_invalid_ops_expected.csv /tmp/invalid_out.csv
-```
+- `input/basic_input.csv`: primary input file for running the engine locally.
