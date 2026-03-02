@@ -115,13 +115,7 @@ chargeback,2,3,
 
     #[test]
     fn accepts_case_insensitive_headers_and_transaction_type_values() {
-        let input = r#"Type, Client, Tx, Amount
-Deposit,1,1,2.0
-wItHdRaWaL,1,2,1.5
-DEPOSIT,2,3,3.0
-dIsPuTe,2,3,
-ChArGeBaCk,2,3,
-"#;
+        let input = include_str!("../input/case_insensitive_input.csv");
 
         let mut engine = Engine::default();
         process_csv_reader(input.as_bytes(), &mut engine).unwrap();
@@ -129,9 +123,9 @@ ChArGeBaCk,2,3,
         let mut out = Vec::new();
         write_accounts_file(&mut out, engine.accounts()).unwrap();
         let output = String::from_utf8(out).unwrap();
+        let expected = include_str!("../output/case_insensitive_output.csv");
 
-        assert!(output.contains("1,0.5000,0.0000,0.5000,false"));
-        assert!(output.contains("2,0.0000,0.0000,0.0000,true"));
+        assert_eq!(output, expected);
     }
 
     #[test]

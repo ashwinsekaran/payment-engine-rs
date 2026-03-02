@@ -34,8 +34,18 @@ cargo run -- input/basic_input.csv > output/basic_output.csv
 
 - Uses fixed-point math (`i64`, 4 decimal places) to avoid floating-point errors.
 - Input is streamed row-by-row from CSV (`csv::Reader`), so the full file is not loaded into memory.
+- Input CSV headers are handled case-insensitively (for example: `type`, `Type`, `TYPE`).
+- Input transaction type values are handled case-insensitively (for example: `deposit`, `DEPOSIT`, `dEpOsIt`).
 - Invalid or irrelevant state transitions are ignored (e.g., dispute for unknown transaction, resolve for non-disputed transaction).
 - After chargeback, account is locked and ignores further transactions.
+
+## Correctness notes
+
+This project uses a combination of type modeling and unit tests:
+
+- `TransactionType` is a Rust enum (`Deposit`, `Withdrawal`, `Dispute`, `Resolve`, `Chargeback`), so downstream engine logic cannot process unknown transaction kinds.
+- CSV parsing normalizes header names before deserializing, which enforces "same text, any case" behavior for required columns.
+- Monetary amounts are parsed into fixed-point integer units (`Amount = i64`) with explicit precision checks, preventing floating-point rounding issues.
 
 ## Testing
 
@@ -52,10 +62,22 @@ Current tests cover:
 - dispute/resolve flow
 - chargeback lock behavior
 - end-to-end CSV processing/output shape
+- case-insensitive CSV headers and transaction values (validated against sample files in this repo)
 
 ## Input file
 
 - `input/basic_input.csv`: primary input file for running the engine locally.
+- `input/case_insensitive_input.csv`: sample input with mixed-case headers and transaction values.
+
+To validate this sample manually:
+
+```bash
+cargo run -- input/case_insensitive_input.csv > output/case_insensitive_output.csv
+```
+
+Expected output snapshot:
+
+- `output/case_insensitive_output.csv`
 
 ## Docker
 
