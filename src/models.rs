@@ -1,5 +1,5 @@
 use anyhow::{anyhow, ensure, Result};
-use serde::Deserialize;
+use serde::{de::Error as _, Deserialize, Deserializer};
 
 /// Fixed-point scale for 4 decimal places (e.g. 1.0000 = 10_000).
 pub const SCALE: i64 = 10_000;
@@ -7,14 +7,33 @@ pub const SCALE: i64 = 10_000;
 pub type Amount = i64;
 
 /// Supported transaction types from the input CSV.
-#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TransactionType {
     Deposit,
     Withdrawal,
     Dispute,
     Resolve,
     Chargeback,
+}
+
+impl<'de> Deserialize<'de> for TransactionType {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        let normalized = value.trim().to_ascii_lowercase();
+        match normalized.as_str() {
+            "deposit" => Ok(Self::Deposit),
+            "withdrawal" => Ok(Self::Withdrawal),
+            "dispute" => Ok(Self::Dispute),
+            "resolve" => Ok(Self::Resolve),
+            "chargeback" => Ok(Self::Chargeback),
+            _ => Err(D::Error::custom(format!(
+                "invalid transaction type: {value}"
+            ))),
+        }
+    }
 }
 
 /// Raw transaction row deserialized from CSV input.

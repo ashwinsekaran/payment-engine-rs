@@ -1,7 +1,7 @@
 use std::{collections::HashMap, fs::File, io::Read, io::Write, path::Path};
 
 use anyhow::{ensure, Context, Result};
-use csv::{ReaderBuilder, Trim, WriterBuilder};
+use csv::{ReaderBuilder, StringRecord, Trim, WriterBuilder};
 use serde::Serialize;
 
 use crate::{
@@ -33,9 +33,19 @@ fn ensure_csv_path(path: &str) -> Result<()> {
 /// Streams CSV rows from any `Read` source and applies them to the engine.
 pub fn process_csv_reader<R: Read>(reader: R, engine: &mut Engine) -> Result<()> {
     let mut csv_reader = ReaderBuilder::new().trim(Trim::All).from_reader(reader);
+    let headers = csv_reader
+        .headers()
+        .context("missing CSV header row")?
+        .iter()
+        .map(|header| header.trim().to_ascii_lowercase())
+        .collect::<Vec<_>>();
+    let normalized_headers = StringRecord::from(headers);
 
-    for (index, row) in csv_reader.deserialize::<CsvTransaction>().enumerate() {
-        let transaction = row.with_context(|| format!("invalid CSV row at line {}", index + 2))?;
+    for (index, row) in csv_reader.records().enumerate() {
+        let record = row.with_context(|| format!("invalid CSV row at line {}", index + 2))?;
+        let transaction: CsvTransaction = record
+            .deserialize(Some(&normalized_headers))
+            .with_context(|| format!("invalid CSV row at line {}", index + 2))?;
         engine.process(transaction);
     }
 
@@ -101,6 +111,44 @@ chargeback,2,3,
         assert!(output.contains("client,available,held,total,locked"));
         assert!(output.contains("1,0.5000,0.0000,0.5000,false"));
         assert!(output.contains("2,0.0000,0.0000,0.0000,true"));
+    }
+
+    #[test]
+    fn accepts_case_insensitive_headers_and_transaction_type_values() {
+        let input = r#"Type, Client, Tx, Amount
+Deposit,1,1,2.0
+wItHdRaWaL,1,2,1.5
+DEPOSIT,2,3,3.0
+dIsPuTe,2,3,
+ChArGeBaCk,2,3,
+"#;
+
+        let mut engine = Engine::default();
+        process_csv_reader(input.as_bytes(), &mut engine).unwrap();
+
+        let mut out = Vec::new();
+        write_accounts_file(&mut out, engine.accounts()).unwrap();
+        let output = String::from_utf8(out).unwrap();
+
+        assert!(output.contains("1,0.5000,0.0000,0.5000,false"));
+        assert!(output.contains("2,0.0000,0.0000,0.0000,true"));
+    }
+
+    #[test]
+    fn accepts_uppercase_headers_and_any_case_transaction_values() {
+        let input = r#"TYPE,CLIENT,TX,AMOUNT
+dEPosIt,1,1,10.0
+WiThDrAwAl,1,2,4.0
+"#;
+
+        let mut engine = Engine::default();
+        process_csv_reader(input.as_bytes(), &mut engine).unwrap();
+
+        let mut out = Vec::new();
+        write_accounts_file(&mut out, engine.accounts()).unwrap();
+        let output = String::from_utf8(out).unwrap();
+
+        assert!(output.contains("1,6.0000,0.0000,6.0000,false"));
     }
 
     #[test]
