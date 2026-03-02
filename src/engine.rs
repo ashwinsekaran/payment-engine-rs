@@ -13,7 +13,10 @@ pub struct Engine {
 }
 
 impl Engine {
-    /// Processes one transaction row and applies state changes if valid.
+    /// Dispatches a CSV transaction row to the relevant transaction handler.
+    ///
+    /// The handler enforces business rules and silently ignores invalid operations,
+    /// matching the engine's "best effort" processing contract.
     pub fn process(&mut self, row: CsvTransaction) {
         match row.tx_type {
             TransactionType::Deposit => self.handle_deposit(row),
@@ -24,15 +27,25 @@ impl Engine {
         }
     }
 
-    /// Returns read-only account state map for final CSV output.
+    /// Returns an immutable view of all account states keyed by client id.
     pub fn accounts(&self) -> &HashMap<u16, Account> {
         &self.accounts
     }
 
+    /// Returns a mutable account for the client, creating an empty account on first access.
     fn account_mut(&mut self, client_id: u16) -> &mut Account {
         self.accounts.entry(client_id).or_default()
     }
 
+    /// Applies a `deposit` transaction.
+    ///
+    /// Rules:
+    /// - amount must be present and valid
+    /// - transaction id must be unique
+    /// - destination account must not be locked
+    ///
+    /// On success, available balance increases and transaction metadata is stored
+    /// for possible dispute lifecycle actions.
     fn handle_deposit(&mut self, row: CsvTransaction) {
         let Some(raw_amount) = row.amount.as_deref() else {
             return;
@@ -64,6 +77,16 @@ impl Engine {
         );
     }
 
+    /// Applies a `withdrawal` transaction.
+    ///
+    /// Rules:
+    /// - amount must be present and valid
+    /// - transaction id must be unique
+    /// - account must not be locked
+    /// - account must have enough available funds
+    ///
+    /// On success, available balance decreases and transaction metadata is stored
+    /// (withdrawals are disputable in this implementation).
     fn handle_withdrawal(&mut self, row: CsvTransaction) {
         let Some(raw_amount) = row.amount.as_deref() else {
             return;
@@ -95,6 +118,15 @@ impl Engine {
         );
     }
 
+    /// Applies a `dispute` against a previously stored transaction.
+    ///
+    /// Rules:
+    /// - referenced transaction must exist
+    /// - transaction must belong to the same client
+    /// - transaction must not already be disputed or chargebacked
+    /// - account must not be locked
+    ///
+    /// On success, amount moves from `available` to `held` and total remains unchanged.
     fn handle_dispute(&mut self, row: CsvTransaction) {
         let (client, amount) = match self.transactions.get_mut(&row.tx) {
             Some(tx) if tx.client == row.client && !tx.disputed && !tx.chargebacked => {
@@ -114,6 +146,15 @@ impl Engine {
         account.held += amount;
     }
 
+    /// Applies a `resolve` for an active dispute.
+    ///
+    /// Rules:
+    /// - referenced transaction must exist and match client id
+    /// - transaction must currently be disputed
+    /// - transaction must not be already chargebacked
+    /// - account must not be locked
+    ///
+    /// On success, amount moves from `held` back to `available`.
     fn handle_resolve(&mut self, row: CsvTransaction) {
         let (client, amount) = match self.transactions.get_mut(&row.tx) {
             Some(tx) if tx.client == row.client && tx.disputed && !tx.chargebacked => {
@@ -133,6 +174,16 @@ impl Engine {
         account.held -= amount;
     }
 
+    /// Applies a `chargeback` for an active dispute.
+    ///
+    /// Rules:
+    /// - referenced transaction must exist and match client id
+    /// - transaction must currently be disputed
+    /// - transaction must not have been chargebacked already
+    /// - account must not be locked
+    ///
+    /// On success, held funds are permanently removed from account total and
+    /// the account is locked against further transactions.
     fn handle_chargeback(&mut self, row: CsvTransaction) {
         let (client, amount) = match self.transactions.get_mut(&row.tx) {
             Some(tx) if tx.client == row.client && tx.disputed && !tx.chargebacked => {

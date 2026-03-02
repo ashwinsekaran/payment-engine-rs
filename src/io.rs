@@ -11,7 +11,9 @@ use crate::{
 
 /// Validates the path, opens the input file, and streams transactions into the engine.
 pub fn process_transactions_file(path: &str, engine: &mut Engine) -> Result<()> {
+    // Validate input file type and path
     ensure_csv_path(path)?;
+
     let file = File::open(path).with_context(|| format!("failed to open input file: {path}"))?;
     process_csv_reader(file, engine)
 }
@@ -37,16 +39,16 @@ pub fn process_csv_reader<R: Read>(reader: R, engine: &mut Engine) -> Result<()>
         .headers()
         .context("missing CSV header row")?
         .iter()
-        .map(|header| header.trim().to_ascii_lowercase())
+        .map(|header| header.trim().to_ascii_lowercase())// Normalize header names even if they are a mixed case
         .collect::<Vec<_>>();
     let normalized_headers = StringRecord::from(headers);
 
     for (index, row) in csv_reader.records().enumerate() {
         let record = row.with_context(|| format!("invalid CSV row at line {}", index + 2))?;
         let transaction: CsvTransaction = record
-            .deserialize(Some(&normalized_headers))
+            .deserialize(Some(&normalized_headers)) // Normalize transaction type values even if they are a mixed case
             .with_context(|| format!("invalid CSV row at line {}", index + 2))?;
-        engine.process(transaction);
+        engine.process(transaction); // Process each transaction row into the engine
     }
 
     Ok(())

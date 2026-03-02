@@ -17,6 +17,8 @@ pub enum TransactionType {
 }
 
 impl<'de> Deserialize<'de> for TransactionType {
+    /// Parses transaction type text from CSV in a case-insensitive way.
+    /// Accepted values are the canonical transaction names regardless of letter case.
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
@@ -82,16 +84,20 @@ pub struct StoredTransaction {
 
 /// Parses a decimal amount string into 4-decimal fixed-point integer units.
 pub fn parse_amount(raw: &str) -> Result<Amount> {
+    // Trim outer whitespace so values like " 1.25 " are accepted.
     let value = raw.trim();
     ensure!(!value.is_empty(), "amount is empty");
     ensure!(!value.starts_with('-'), "amount cannot be negative");
 
+    // Split once into whole/fractional parts; absent fraction means integer amount.
     let (whole, frac) = value
         .split_once('.')
         .map_or((value, ""), |(whole, frac)| (whole, frac));
 
+    // Accept only ASCII digits in each component.
     ensure!(whole.chars().all(|c| c.is_ascii_digit()), "invalid amount");
     ensure!(frac.chars().all(|c| c.is_ascii_digit()), "invalid amount");
+    // Engine supports at most 4 decimal places.
     ensure!(frac.len() <= 4, "amount precision exceeds 4 decimals");
 
     let whole = if whole.is_empty() {
@@ -102,16 +108,19 @@ pub fn parse_amount(raw: &str) -> Result<Amount> {
 
     let mut frac_scaled = 0_i128;
     if !frac.is_empty() {
+        // Right-pad fractional part to fixed 4-digit scale (e.g. "2" -> "2000").
         let frac_value = frac.parse::<i128>()?;
         let pad = 4_u32 - frac.len() as u32;
         frac_scaled = frac_value * 10_i128.pow(pad);
     }
 
+    // Convert to fixed-point integer units and guard against overflow.
     let scaled = whole
         .checked_mul(SCALE as i128)
         .and_then(|v| v.checked_add(frac_scaled))
         .ok_or_else(|| anyhow!("amount overflow"))?;
 
+    // Convert back to i64 storage type and enforce positive non-zero amounts.
     let amount = i64::try_from(scaled)?;
     ensure!(amount > 0, "amount must be greater than zero");
 
@@ -120,10 +129,12 @@ pub fn parse_amount(raw: &str) -> Result<Amount> {
 
 /// Formats fixed-point amount into a decimal string with exactly 4 fractional digits.
 pub fn format_amount(amount: Amount) -> String {
+    // Preserve sign and format absolute value as whole + zero-padded 4-digit fraction.
     let sign = if amount < 0 { "-" } else { "" };
     let absolute = amount.abs();
     let whole = absolute / SCALE;
     let frac = absolute % SCALE;
+    // Always emit deterministic 4-decimal output for CSV stability.
     format!("{sign}{whole}.{frac:04}")
 }
 
